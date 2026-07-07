@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>加速度テスト</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 40px; }
+    #val { font-size: 48px; margin: 30px; }
+    button { font-size: 24px; padding: 20px 40px; }
+  </style>
+</head>
+<body>
+  <h2>加速度テスト</h2>
+  <button id="startBtn">スタート</button>
+  <div id="val">-</div>
+
+  <script>
+    const btn = document.getElementById('startBtn');
+    const val = document.getElementById('val');
+
+    btn.addEventListener('click', async () => {
+      // iOSでは許可が必要
+      if (typeof DeviceMotionEvent !== 'undefined' &&
+          typeof DeviceMotionEvent.requestPermission === 'function') {
+        const res = await DeviceMotionEvent.requestPermission();
+        if (res !== 'granted') {
+          val.textContent = '許可されませんでした';
+          return;
+        }
+      }
+      window.addEventListener('devicemotion', (e) => {
+        const a = e.accelerationIncludingGravity;
+        const mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
+        val.textContent = mag.toFixed(1);
+      });
+      btn.style.display = 'none';
+    });
+  </script>
+</body>
+</html>
