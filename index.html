@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>加速度テスト（重力除去）</title>
+  <title>加速度テスト</title>
   <style>
     body { font-family: sans-serif; text-align: center; padding: 40px; }
     #raw { font-size: 32px; color: #888; margin: 15px; }
@@ -12,19 +12,15 @@
   </style>
 </head>
 <body>
-  <h2>加速度テスト（重力除去）</h2>
+  <h2>加速度テスト</h2>
   <button id="startBtn">スタート</button>
-  <div>生の値: <span id="raw">-</span></div>
+  <div>重力込み: <span id="raw">-</span></div>
   <div>動きだけ: <span id="motion">-</span></div>
 
   <script>
     const btn = document.getElementById('startBtn');
     const rawEl = document.getElementById('raw');
     const motionEl = document.getElementById('motion');
-
-    // 重力を保持する変数（各軸）
-    let gx = 0, gy = 0, gz = 0;
-    const ALPHA = 0.8;  // 重力追従の滑らかさ
 
     btn.addEventListener('click', async () => {
       if (typeof DeviceMotionEvent !== 'undefined' &&
@@ -36,23 +32,21 @@
         }
       }
       window.addEventListener('devicemotion', (e) => {
-        const a = e.accelerationIncludingGravity;
+        // 重力込みの加速度
+        const ag = e.accelerationIncludingGravity;
+        if (ag) {
+          const rawMag = Math.sqrt(ag.x*ag.x + ag.y*ag.y + ag.z*ag.z);
+          rawEl.textContent = rawMag.toFixed(1);
+        }
 
-        // 生の合成値
-        const rawMag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
-        rawEl.textContent = rawMag.toFixed(1);
-
-        // ローパスフィルタで重力を推定
-        gx = ALPHA*gx + (1-ALPHA)*a.x;
-        gy = ALPHA*gy + (1-ALPHA)*a.y;
-        gz = ALPHA*gz + (1-ALPHA)*a.z;
-
-        // 重力を引いた「動きだけ」の加速度
-        const lx = a.x - gx;
-        const ly = a.y - gy;
-        const lz = a.z - gz;
-        const motionMag = Math.sqrt(lx*lx + ly*ly + lz*lz);
-        motionEl.textContent = motionMag.toFixed(1);
+        // 重力を除いた加速度（ブラウザが計算済み）
+        const a = e.acceleration;
+        if (a && a.x !== null) {
+          const motionMag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
+          motionEl.textContent = motionMag.toFixed(1);
+        } else {
+          motionEl.textContent = '取得不可';
+        }
       });
       btn.style.display = 'none';
     });
