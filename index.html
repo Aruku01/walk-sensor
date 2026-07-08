@@ -3,50 +3,53 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>加速度グラフ</title>
+  <title>加速度データ記録</title>
   <style>
     body { font-family: sans-serif; text-align: center; padding: 20px; }
     #now { font-size: 40px; margin: 10px; }
-    #peak { font-size: 24px; color: #a55; margin: 10px; }
-    button { font-size: 20px; padding: 15px 30px; margin: 5px; }
-    canvas { border: 1px solid #ccc; width: 100%; max-width: 400px; }
+    #status { font-size: 18px; color: #666; margin: 10px; }
+    button { font-size: 20px; padding: 15px 30px; margin: 8px; display: block; width: 80%; margin-left: auto; margin-right: auto; }
+    #startBtn { background: #2a7; color: white; border: none; border-radius: 8px; }
+    #stopBtn { background: #a55; color: white; border: none; border-radius: 8px; }
+    #dlBtn { background: #57a; color: white; border: none; border-radius: 8px; }
   </style>
 </head>
 <body>
-  <h2>加速度グラフ（動きだけ）</h2>
-  <button id="startBtn">スタート</button>
-  <button id="resetBtn">最大値リセット</button>
+  <h2>加速度データ記録</h2>
+  <button id="startBtn">① 計測スタート</button>
+  <button id="stopBtn">② 計測ストップ</button>
+  <button id="dlBtn">③ CSVダウンロード</button>
   <div>現在値: <span id="now">-</span></div>
-  <div>最大値: <span id="peak">0</span></div>
-  <canvas id="graph" width="400" height="300"></canvas>
+  <div id="status">未計測</div>
 
   <script>
-    const btn = document.getElementById('startBtn');
-    const resetBtn = document.getElementById('resetBtn');
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const dlBtn = document.getElementById('dlBtn');
     const nowEl = document.getElementById('now');
-    const peakEl = document.getElementById('peak');
-    const canvas = document.getElementById('graph');
-    const ctx = canvas.getContext('2d');
+    const statusEl = document.getElementById('status');
 
-    const history = [];        // 直近の値を保持
-    const MAX_POINTS = 100;    // グラフに表示する点の数
-    let peak = 0;
+    let recording = false;
+    let data = [];        // {t, ax, ay, az, mag} を溜める
+    let startTime = 0;
+    let handler = null;
 
-    resetBtn.addEventListener('click', () => {
-      peak = 0;
-      peakEl.textContent = '0';
-    });
-
-    btn.addEventListener('click', async () => {
+    startBtn.addEventListener('click', async () => {
       if (typeof DeviceMotionEvent !== 'undefined' &&
           typeof DeviceMotionEvent.requestPermission === 'function') {
         const res = await DeviceMotionEvent.requestPermission();
         if (res !== 'granted') {
-          nowEl.textContent = '許可されませんでした';
+          statusEl.textContent = '許可されませんでした';
           return;
         }
       }
-      window.addEventListener('devicemotion', (e) => {
+
+      data = [];
+      startTime = Date.now();
+      recording = true;
+      statusEl.textContent = '計測中...';
+
+      handler = (e) => {
         const a = e.acceleration;
         if (!a || a.x === null) {
           nowEl.textContent = '取得不可';
@@ -55,49 +58,43 @@
         const mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
         nowEl.textContent = mag.toFixed(1);
 
-        if (mag > peak) {
-          peak = mag;
-          peakEl.textContent = peak.toFixed(1);
+        if (recording) {
+          const t = (Date.now() - startTime) / 1000;  // 経過秒
+          data.push({
+            t: t.toFixed(3),
+            ax: a.x.toFixed(3),
+            ay: a.y.toFixed(3),
+            az: a.z.toFixed(3),
+            mag: mag.toFixed(3)
+          });
+          statusEl.textContent = '計測中... ' + data.length + '件';
         }
-
-        history.push(mag);
-        if (history.length > MAX_POINTS) history.shift();
-        draw();
-      });
-      btn.style.display = 'none';
+      };
+      window.addEventListener('devicemotion', handler);
     });
 
-    function draw() {
-      const w = canvas.width;
-      const h = canvas.height;
-      ctx.clearRect(0, 0, w, h);
+    stopBtn.addEventListener('click', () => {
+      recording = false;
+      statusEl.textContent = '計測終了：' + data.length + '件記録';
+    });
 
-      // 目盛り線（縦軸の値の目安）
-      const SCALE = 20;  // グラフ上端が加速度20に相当
-      ctx.strokeStyle = '#eee';
-      ctx.fillStyle = '#999';
-      ctx.font = '12px sans-serif';
-      for (let v = 0; v <= SCALE; v += 5) {
-        const y = h - (v / SCALE) * h;
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
-        ctx.fillText(v, 2, y - 2);
+    dlBtn.addEventListener('click', () => {
+      if (data.length === 0) {
+        statusEl.textContent = 'データがありません';
+        return;
       }
-
-      // 波形
-      ctx.strokeStyle = '#2a7';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      for (let i = 0; i < history.length; i++) {
-        const x = (i / MAX_POINTS) * w;
-        const y = h - (history[i] / SCALE) * h;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      let csv = 'time,ax,ay,az,mag\n';
+      for (const d of data) {
+        csv += `${d.t},${d.ax},${d.ay},${d.az},${d.mag}\n`;
       }
-      ctx.stroke();
-    }
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'walk_data.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
   </script>
 </body>
 </html>
