@@ -3,97 +3,126 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>加速度データ記録</title>
+  <title>歩行検出（リズム方式）</title>
   <style>
     body { font-family: sans-serif; text-align: center; padding: 20px; }
-    #now { font-size: 40px; margin: 10px; }
-    #status { font-size: 18px; color: #666; margin: 10px; }
-    button { font-size: 20px; padding: 15px 30px; margin: 8px; display: block; width: 80%; margin-left: auto; margin-right: auto; }
-    #startBtn { background: #2a7; color: white; border: none; border-radius: 8px; }
-    #stopBtn { background: #a55; color: white; border: none; border-radius: 8px; }
-    #dlBtn { background: #57a; color: white; border: none; border-radius: 8px; }
+    #now { font-size: 36px; margin: 10px; }
+    #state { font-size: 28px; margin: 15px; padding: 10px; border-radius: 8px; }
+    .walking { background: #2a7; color: white; }
+    .idle { background: #eee; color: #666; }
+    #count { font-size: 60px; color: #2a7; }
+    button { font-size: 22px; padding: 15px 30px; }
   </style>
 </head>
 <body>
-  <h2>加速度データ記録</h2>
-  <button id="startBtn">① 計測スタート</button>
-  <button id="stopBtn">② 計測ストップ</button>
-  <button id="dlBtn">③ CSVダウンロード</button>
-  <div>現在値: <span id="now">-</span></div>
-  <div id="status">未計測</div>
+  <h2>歩行検出（リズム方式）</h2>
+  <button id="startBtn">スタート</button>
+  <div>動き: <span id="now">-</span></div>
+  <div id="state" class="idle">待機中</div>
+  <div>歩数: <span id="count">0</span></div>
 
   <script>
     const startBtn = document.getElementById('startBtn');
-    const stopBtn = document.getElementById('stopBtn');
-    const dlBtn = document.getElementById('dlBtn');
     const nowEl = document.getElementById('now');
-    const statusEl = document.getElementById('status');
+    const stateEl = document.getElementById('state');
+    const countEl = document.getElementById('count');
 
-    let recording = false;
-    let data = [];        // {t, ax, ay, az, mag} を溜める
-    let startTime = 0;
-    let handler = null;
+    // --- チューニング値 ---
+    const THRESHOLD = 3.0;        // 山とみなす動きの大きさ
+    const REFRACTORY_MS = 250;    // 1歩の最小間隔（これ以内の山は無視）
+    const RHYTHM_MIN_MS = 300;    // 歩行リズムの間隔の下限
+    const RHYTHM_MAX_MS = 900;    // 歩行リズムの間隔の上限
+    const NEED_RHYTHM = 3;        // 何回リズムが続いたら歩行とみなすか
+
+    // 音の準備
+    let audioCtx = null;
+    function beep() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.frequency.value = 1000;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.08);
+    }
+
+    let count = 0;
+    let lastPeakTime = 0;
+    let rhythmCount = 0;       // 連続してリズムが合った回数
+    let aboveThreshold = false;
+    let isWalking = false;
 
     startBtn.addEventListener('click', async () => {
       if (typeof DeviceMotionEvent !== 'undefined' &&
           typeof DeviceMotionEvent.requestPermission === 'function') {
         const res = await DeviceMotionEvent.requestPermission();
         if (res !== 'granted') {
-          statusEl.textContent = '許可されませんでした';
+          nowEl.textContent = '許可されませんでした';
           return;
         }
       }
+      // 音を鳴らす準備（ユーザー操作の中で作る必要がある）
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-      data = [];
-      startTime = Date.now();
-      recording = true;
-      statusEl.textContent = '計測中...';
-
-      handler = (e) => {
+      window.addEventListener('devicemotion', (e) => {
         const a = e.acceleration;
-        if (!a || a.x === null) {
-          nowEl.textContent = '取得不可';
-          return;
-        }
+        if (!a || a.x === null) { nowEl.textContent = '取得不可'; return; }
         const mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
         nowEl.textContent = mag.toFixed(1);
 
-        if (recording) {
-          const t = (Date.now() - startTime) / 1000;  // 経過秒
-          data.push({
-            t: t.toFixed(3),
-            ax: a.x.toFixed(3),
-            ay: a.y.toFixed(3),
-            az: a.z.toFixed(3),
-            mag: mag.toFixed(3)
-          });
-          statusEl.textContent = '計測中... ' + data.length + '件';
+        const now = Date.now();
+
+        // 閾値を下から上に超えた瞬間 = 山
+        if (mag > THRESHOLD && !aboveThreshold) {
+          aboveThreshold = true;
+          const interval = now - lastPeakTime;
+
+          if (interval >= REFRACTORY_MS) {
+            // この山が歩行リズムの間隔内か
+            if (interval >= RHYTHM_MIN_MS && interval <= RHYTHM_MAX_MS) {
+              rhythmCount++;   // リズムが続いた
+            } else {
+              rhythmCount = 1; // リズム途切れ。仕切り直し
+            }
+            lastPeakTime = now;
+
+            // 規定回数リズムが続いたら歩行中
+            if (rhythmCount >= NEED_RHYTHM) {
+              isWalking = true;
+            }
+
+            // 歩行中なら、この山で音を鳴らして歩数を数える
+            if (isWalking) {
+              beep();
+              count++;
+              countEl.textContent = count;
+            }
+          }
+        } else if (mag < THRESHOLD) {
+          aboveThreshold = false;
         }
-      };
-      window.addEventListener('devicemotion', handler);
-    });
 
-    stopBtn.addEventListener('click', () => {
-      recording = false;
-      statusEl.textContent = '計測終了：' + data.length + '件記録';
-    });
+        // しばらく山が来なければ歩行終了とみなす
+        if (now - lastPeakTime > RHYTHM_MAX_MS) {
+          if (isWalking || rhythmCount > 0) {
+            isWalking = false;
+            rhythmCount = 0;
+          }
+        }
 
-    dlBtn.addEventListener('click', () => {
-      if (data.length === 0) {
-        statusEl.textContent = 'データがありません';
-        return;
-      }
-      let csv = 'time,ax,ay,az,mag\n';
-      for (const d of data) {
-        csv += `${d.t},${d.ax},${d.ay},${d.az},${d.mag}\n`;
-      }
-      const blob = new Blob([csv], { type: 'text/csv' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'walk_data.csv';
-      a.click();
-      URL.revokeObjectURL(url);
+        // 表示更新
+        if (isWalking) {
+          stateEl.textContent = '歩行中';
+          stateEl.className = 'walking';
+        } else {
+          stateEl.textContent = '待機中';
+          stateEl.className = 'idle';
+        }
+      });
+      startBtn.style.display = 'none';
     });
   </script>
 </body>
