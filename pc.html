@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>足音プレイヤー＆カウンター（PC用）</title>
+  <style>
+    body { font-family: sans-serif; text-align: center; padding: 40px; }
+    #count { font-size: 100px; color: #2a7; margin: 10px; }
+    #side { font-size: 40px; margin: 10px; }
+    #status { font-size: 22px; color: #666; margin: 15px; }
+    #conn { font-size: 18px; color: #888; }
+    #soundState { font-size: 20px; margin: 10px; }
+    button { font-size: 22px; padding: 15px 40px; margin: 10px; }
+  </style>
+</head>
+<body>
+  <h2>足音プレイヤー＆カウンター（PC用）</h2>
+  <button id="soundBtn">🔊 音を有効にする</button>
+  <div id="soundState">音: オフ（数字のみ表示中）</div>
+  <div>受信した歩数</div>
+  <div id="count">0</div>
+  <div id="side">-</div>
+  <div id="status">スマホの歩行を待っています</div>
+  <div id="conn">Firebase: 未接続</div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBr20JpcVm6BQ3vmFKnqBebsqBZ9gh-AIA",
+      authDomain: "walk-sound.firebaseapp.com",
+      databaseURL: "https://walk-sound-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "walk-sound",
+      storageBucket: "walk-sound.firebasestorage.app",
+      messagingSenderId: "412603374687",
+      appId: "1:412603374687:web:f073d8083e2c4a81a18fea"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const stepRef = ref(db, 'step');
+    document.getElementById('conn').textContent = 'Firebase: 接続済み';
+
+    const soundBtn = document.getElementById('soundBtn');
+    const soundState = document.getElementById('soundState');
+    const countEl = document.getElementById('count');
+    const sideEl = document.getElementById('side');
+    const statusEl = document.getElementById('status');
+
+    let audioCtx = null;
+    let count = 0;
+    let lastTime = 0;
+
+    function beep(side) {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      // 左右で音の高さを変える
+      osc.frequency.value = (side === 'L') ? 700 : 900;
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.1);
+    }
+
+    // 音を有効にするボタン（押さなくても数字は動く）
+    soundBtn.addEventListener('click', () => {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      soundState.textContent = '音: オン';
+      soundBtn.style.display = 'none';
+    });
+
+    // Firebaseの'step'を監視（音のオンオフに関わらず常に動く）
+    onValue(stepRef, (snapshot) => {
+      const data = snapshot.val();
+      if (!data || !data.time) return;
+      if (data.time === lastTime) return;
+      lastTime = data.time;
+
+      count++;
+      countEl.textContent = count;
+      sideEl.textContent = (data.side === 'L' ? '左足' : '右足');
+      statusEl.textContent = '最終受信: ' + new Date(data.time).toLocaleTimeString();
+
+      // 音が有効なら鳴らす
+      beep(data.side);
+    });
+  </script>
+</body>
+</html>
