@@ -3,55 +3,60 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>歩行検出（リズム方式）</title>
+  <title>歩行センサー（スマホ用）</title>
   <style>
     body { font-family: sans-serif; text-align: center; padding: 20px; }
     #now { font-size: 36px; margin: 10px; }
-    #state { font-size: 28px; margin: 15px; padding: 10px; border-radius: 8px; }
+    #state { font-size: 26px; margin: 15px; padding: 10px; border-radius: 8px; }
     .walking { background: #2a7; color: white; }
     .idle { background: #eee; color: #666; }
-    #count { font-size: 60px; color: #2a7; }
-    button { font-size: 22px; padding: 15px 30px; }
+    #count { font-size: 50px; color: #2a7; }
+    #conn { font-size: 16px; color: #888; }
+    button { font-size: 22px; padding: 15px 40px; }
   </style>
 </head>
 <body>
-  <h2>歩行検出（リズム方式）</h2>
+  <h2>歩行センサー（スマホ用）</h2>
   <button id="startBtn">スタート</button>
   <div>動き: <span id="now">-</span></div>
   <div id="state" class="idle">待機中</div>
-  <div>歩数: <span id="count">0</span></div>
+  <div>送信数: <span id="count">0</span></div>
+  <div id="conn">Firebase: 未接続</div>
 
-  <script>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+    import { getDatabase, ref, set } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyBr20JpcVm6BQ3vmFKnqBebsqBZ9gh-AIA",
+      authDomain: "walk-sound.firebaseapp.com",
+      databaseURL: "https://walk-sound-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "walk-sound",
+      storageBucket: "walk-sound.firebasestorage.app",
+      messagingSenderId: "412603374687",
+      appId: "1:412603374687:web:f073d8083e2c4a81a18fea"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const stepRef = ref(db, 'step');
+    document.getElementById('conn').textContent = 'Firebase: 接続済み';
+
     const startBtn = document.getElementById('startBtn');
     const nowEl = document.getElementById('now');
     const stateEl = document.getElementById('state');
     const countEl = document.getElementById('count');
 
     // --- チューニング値 ---
-    const THRESHOLD = 3.0;        // 山とみなす動きの大きさ
-    const REFRACTORY_MS = 250;    // 1歩の最小間隔（これ以内の山は無視）
-    const RHYTHM_MIN_MS = 300;    // 歩行リズムの間隔の下限
-    const RHYTHM_MAX_MS = 900;    // 歩行リズムの間隔の上限
-    const NEED_RHYTHM = 3;        // 何回リズムが続いたら歩行とみなすか
-
-    // 音の準備
-    let audioCtx = null;
-    function beep() {
-      if (!audioCtx) return;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.frequency.value = 1000;
-      osc.connect(gain);
-      gain.connect(audioCtx.destination);
-      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.08);
-      osc.start();
-      osc.stop(audioCtx.currentTime + 0.08);
-    }
+    const THRESHOLD = 3.0;
+    const REFRACTORY_MS = 250;
+    const RHYTHM_MIN_MS = 350;
+    const RHYTHM_MAX_MS = 800;
+    const NEED_RHYTHM = 4;
 
     let count = 0;
     let lastPeakTime = 0;
-    let rhythmCount = 0;       // 連続してリズムが合った回数
+    let rhythmCount = 0;
     let aboveThreshold = false;
     let isWalking = false;
 
@@ -59,44 +64,30 @@
       if (typeof DeviceMotionEvent !== 'undefined' &&
           typeof DeviceMotionEvent.requestPermission === 'function') {
         const res = await DeviceMotionEvent.requestPermission();
-        if (res !== 'granted') {
-          nowEl.textContent = '許可されませんでした';
-          return;
-        }
+        if (res !== 'granted') { nowEl.textContent = '許可されませんでした'; return; }
       }
-      // 音を鳴らす準備（ユーザー操作の中で作る必要がある）
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
       window.addEventListener('devicemotion', (e) => {
         const a = e.acceleration;
         if (!a || a.x === null) { nowEl.textContent = '取得不可'; return; }
         const mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
         nowEl.textContent = mag.toFixed(1);
-
         const now = Date.now();
 
-        // 閾値を下から上に超えた瞬間 = 山
         if (mag > THRESHOLD && !aboveThreshold) {
           aboveThreshold = true;
           const interval = now - lastPeakTime;
-
           if (interval >= REFRACTORY_MS) {
-            // この山が歩行リズムの間隔内か
             if (interval >= RHYTHM_MIN_MS && interval <= RHYTHM_MAX_MS) {
-              rhythmCount++;   // リズムが続いた
+              rhythmCount++;
             } else {
-              rhythmCount = 1; // リズム途切れ。仕切り直し
+              rhythmCount = 1;
             }
             lastPeakTime = now;
+            if (rhythmCount >= NEED_RHYTHM) isWalking = true;
 
-            // 規定回数リズムが続いたら歩行中
-            if (rhythmCount >= NEED_RHYTHM) {
-              isWalking = true;
-            }
-
-            // 歩行中なら、この山で音を鳴らして歩数を数える
             if (isWalking) {
-              beep();
+              // Firebaseに「歩いた」を送信（タイムスタンプで毎回変化させる）
+              set(stepRef, { time: now, side: (count % 2 === 0 ? 'L' : 'R') });
               count++;
               countEl.textContent = count;
             }
@@ -105,22 +96,13 @@
           aboveThreshold = false;
         }
 
-        // しばらく山が来なければ歩行終了とみなす
         if (now - lastPeakTime > RHYTHM_MAX_MS) {
-          if (isWalking || rhythmCount > 0) {
-            isWalking = false;
-            rhythmCount = 0;
-          }
+          isWalking = false;
+          rhythmCount = 0;
         }
 
-        // 表示更新
-        if (isWalking) {
-          stateEl.textContent = '歩行中';
-          stateEl.className = 'walking';
-        } else {
-          stateEl.textContent = '待機中';
-          stateEl.className = 'idle';
-        }
+        stateEl.textContent = isWalking ? '歩行中' : '待機中';
+        stateEl.className = isWalking ? 'walking' : 'idle';
       });
       startBtn.style.display = 'none';
     });
