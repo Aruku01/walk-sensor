@@ -3,67 +3,101 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>歩行検出</title>
+  <title>加速度グラフ</title>
   <style>
-    body { font-family: sans-serif; text-align: center; padding: 40px; }
-    #motion { font-size: 40px; margin: 15px; }
-    #count { font-size: 80px; margin: 20px; color: #2a7; }
-    button { font-size: 24px; padding: 20px 40px; }
+    body { font-family: sans-serif; text-align: center; padding: 20px; }
+    #now { font-size: 40px; margin: 10px; }
+    #peak { font-size: 24px; color: #a55; margin: 10px; }
+    button { font-size: 20px; padding: 15px 30px; margin: 5px; }
+    canvas { border: 1px solid #ccc; width: 100%; max-width: 400px; }
   </style>
 </head>
 <body>
-  <h2>歩行検出</h2>
+  <h2>加速度グラフ（動きだけ）</h2>
   <button id="startBtn">スタート</button>
-  <div>動きだけ: <span id="motion">-</span></div>
-  <div>歩数: <span id="count">0</span></div>
+  <button id="resetBtn">最大値リセット</button>
+  <div>現在値: <span id="now">-</span></div>
+  <div>最大値: <span id="peak">0</span></div>
+  <canvas id="graph" width="400" height="300"></canvas>
 
   <script>
     const btn = document.getElementById('startBtn');
-    const motionEl = document.getElementById('motion');
-    const countEl = document.getElementById('count');
+    const resetBtn = document.getElementById('resetBtn');
+    const nowEl = document.getElementById('now');
+    const peakEl = document.getElementById('peak');
+    const canvas = document.getElementById('graph');
+    const ctx = canvas.getContext('2d');
 
-    // --- チューニング値 ---
-    const THRESHOLD = 2.0;      // ★この値を超えたら「山」とみなす
-    const REFRACTORY_MS = 300;  // 一度数えたら次まで最低これだけ空ける（ミリ秒）
+    const history = [];        // 直近の値を保持
+    const MAX_POINTS = 100;    // グラフに表示する点の数
+    let peak = 0;
 
-    let count = 0;
-    let lastStepTime = 0;
-    let aboveThreshold = false;  // 今、閾値を超えている最中か
+    resetBtn.addEventListener('click', () => {
+      peak = 0;
+      peakEl.textContent = '0';
+    });
 
     btn.addEventListener('click', async () => {
       if (typeof DeviceMotionEvent !== 'undefined' &&
           typeof DeviceMotionEvent.requestPermission === 'function') {
         const res = await DeviceMotionEvent.requestPermission();
         if (res !== 'granted') {
-          motionEl.textContent = '許可されませんでした';
+          nowEl.textContent = '許可されませんでした';
           return;
         }
       }
       window.addEventListener('devicemotion', (e) => {
         const a = e.acceleration;
         if (!a || a.x === null) {
-          motionEl.textContent = '取得不可';
+          nowEl.textContent = '取得不可';
           return;
         }
         const mag = Math.sqrt(a.x*a.x + a.y*a.y + a.z*a.z);
-        motionEl.textContent = mag.toFixed(1);
+        nowEl.textContent = mag.toFixed(1);
 
-        const now = Date.now();
-
-        // 閾値を下から上に超えた瞬間だけ1歩とカウント
-        if (mag > THRESHOLD && !aboveThreshold) {
-          aboveThreshold = true;
-          if (now - lastStepTime >= REFRACTORY_MS) {
-            count++;
-            countEl.textContent = count;
-            lastStepTime = now;
-          }
-        } else if (mag < THRESHOLD) {
-          aboveThreshold = false;
+        if (mag > peak) {
+          peak = mag;
+          peakEl.textContent = peak.toFixed(1);
         }
+
+        history.push(mag);
+        if (history.length > MAX_POINTS) history.shift();
+        draw();
       });
       btn.style.display = 'none';
     });
+
+    function draw() {
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // 目盛り線（縦軸の値の目安）
+      const SCALE = 20;  // グラフ上端が加速度20に相当
+      ctx.strokeStyle = '#eee';
+      ctx.fillStyle = '#999';
+      ctx.font = '12px sans-serif';
+      for (let v = 0; v <= SCALE; v += 5) {
+        const y = h - (v / SCALE) * h;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+        ctx.fillText(v, 2, y - 2);
+      }
+
+      // 波形
+      ctx.strokeStyle = '#2a7';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < history.length; i++) {
+        const x = (i / MAX_POINTS) * w;
+        const y = h - (history[i] / SCALE) * h;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
   </script>
 </body>
 </html>
