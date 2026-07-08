@@ -30,9 +30,9 @@
     // --- チューニング値 ---
     const THRESHOLD = 3.0;        // 山とみなす動きの大きさ
     const REFRACTORY_MS = 250;    // 1歩の最小間隔（これ以内の山は無視）
-    const RHYTHM_MIN_MS = 300;    // 歩行リズムの間隔の下限
-    const RHYTHM_MAX_MS = 900;    // 歩行リズムの間隔の上限
-    const NEED_RHYTHM = 3;        // 何回リズムが続いたら歩行とみなすか
+    const RHYTHM_MIN_MS = 400;    // 歩行リズムの間隔の下限
+    const RHYTHM_MAX_MS = 700;    // 歩行リズムの間隔の上限
+    const NEED_RHYTHM = 5;        // 何回リズムが続いたら歩行とみなすか
 
     // 音の準備
     let audioCtx = null;
