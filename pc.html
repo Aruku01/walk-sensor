@@ -68,7 +68,11 @@
 
     // 音を有効にするボタン（押さなくても数字は動く）
     soundBtn.addEventListener('click', () => {
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      // ユーザー操作のうちに一度再生して、以降鳴らせるようにする
+      footAudio.play().then(() => {
+        footAudio.pause();
+        footAudio.currentTime = 0;
+      }).catch(() => {});
       soundState.textContent = '音: オン';
       soundBtn.style.display = 'none';
     });
