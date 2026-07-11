@@ -49,35 +49,32 @@
     const sideEl = document.getElementById('side');
     const statusEl = document.getElementById('status');
 
-    let audioCtx = null;
-    let count = 0;
-    let lastTime = 0;
+    // 足音ファイルを準備
+    const footAudio = new Audio('footstep-star.mp3');
+    let soundOn = false;
 
-    function beep(side) {
-          if (!audioCtx) return;
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.frequency.value = (side === 'L') ? 700 : 900;
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-          gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-          osc.start();
-          osc.stop(audioCtx.currentTime + 0.1);
-        }
+    function playFootstep() {
+      if (!soundOn) return;
+      footAudio.currentTime = 0;   // 鳴らすたびに最初から
+      footAudio.play().catch(() => {});
+    }
 
-    // 音を有効にするボタン（押さなくても数字は動く）
+    // 音を有効にするボタン（ユーザー操作のうちに一度再生準備する）
     soundBtn.addEventListener('click', () => {
-      // ユーザー操作のうちに一度再生して、以降鳴らせるようにする
       footAudio.play().then(() => {
         footAudio.pause();
         footAudio.currentTime = 0;
-      }).catch(() => {});
-      soundState.textContent = '音: オン';
+        soundOn = true;
+        soundState.textContent = '音: オン';
+      }).catch(() => {
+        soundState.textContent = '音の準備に失敗しました';
+      });
       soundBtn.style.display = 'none';
     });
 
-    // Firebaseの'step'を監視（音のオンオフに関わらず常に動く）
+    // Firebaseの'step'を監視（音のオンオフに関わらず数字は動く）
+    let count = 0;
+    let lastTime = 0;
     onValue(stepRef, (snapshot) => {
       const data = snapshot.val();
       if (!data || !data.time) return;
@@ -88,9 +85,7 @@
       countEl.textContent = count;
       sideEl.textContent = (data.side === 'L' ? '左足' : '右足');
       statusEl.textContent = '最終受信: ' + new Date(data.time).toLocaleTimeString();
-
-      // 音が有効なら鳴らす
-      beep(data.side);
+      playFootstep();
     });
   </script>
 </body>
