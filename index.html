@@ -53,6 +53,7 @@
     const RHYTHM_MIN_MS = 400;
     const RHYTHM_MAX_MS = 750;
     const NEED_RHYTHM = 4;
+    const STOP_MS = 3000;
 
     let count = 0;
     let lastPeakTime = 0;
@@ -95,7 +96,7 @@
           aboveThreshold = false;
         }
 
-        if (now - lastPeakTime > RHYTHM_MAX_MS) {
+        if (now - lastPeakTime > STOP_MS) {
           isWalking = false;
           rhythmCount = 0;
         }
